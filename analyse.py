@@ -4,12 +4,12 @@ import mdtraj as md
 import itertools
 from DEERPREdict.utils import Operations
 
-def loadExpPREs(cwd, name,prot):
+def loadExpPREs(cwd,dataset, name,prot):
     value = {}
     error = {}
     resnums = np.arange(1,len(prot.fasta)+1)
     for label in prot.labels:
-        value[label], error[label] = np.loadtxt(f'{cwd}/{name}/expPREs/exp-{label}.dat',unpack=True)
+        value[label], error[label] = np.loadtxt(f'{cwd}/{dataset}/{name}/expPREs/exp-{label}.dat',unpack=True)
     v = pd.DataFrame(value,index=resnums)
     v.rename_axis('residue', axis='index', inplace=True)
     v.rename_axis('label', axis='columns',inplace=True)
@@ -18,37 +18,37 @@ def loadExpPREs(cwd, name,prot):
     e.rename_axis('label', axis='columns',inplace=True)
     return pd.concat(dict(value=v,error=e),axis=1)
 
-def loadInitPREs(cwd, name,prot):
+def loadInitPREs(cwd, dataset, name,prot):
     obs = 1 if prot.obs=='ratio' else 2
     value = {}
     resnums = np.arange(1,len(prot.fasta)+1)
     for label in prot.labels:
-        value[label] = np.loadtxt(f'{cwd}/{prot.path}/calcPREs/res-{label}.dat')[:,obs]
+        value[label] = np.loadtxt(f'{cwd}/{dataset}/{prot.path}/calcPREs/res-{label}.dat')[:,obs]
     v = pd.DataFrame(value,index=resnums)
     v.rename_axis('residue', inplace=True)
     v.rename_axis('label', axis='columns',inplace=True)
     return v
 
-def calcChi2(cwd, prot):
+def calcChi2(cwd,dataset, prot):
     obs = 1 if prot.obs=='ratio' else 2
     chi2 = 0
     for label in prot.labels:
-        y = np.loadtxt(f'{cwd}/{prot.path}/calcPREs/res-{label}.dat')[:,obs]
+        y = np.loadtxt(f'{cwd}/{dataset}/{prot.path}/calcPREs/res-{label}.dat')[:,obs]
         chi = (prot.expPREs.value[label].values - y) / prot.expPREs.error[label].values
         chi = chi[~np.isnan(chi)]
         chi2 += np.nansum( np.power( chi, 2) ) / chi.size
     return chi2 / len(prot.labels)
 
-def optTauC(cwd, prot):
+def optTauC(cwd,dataset, prot):
     obs = 1 if prot.obs == 'ratio' else 2
     chi2list = []
     tau_c = np.arange(2,10.05,1)
     for tc in tau_c:
         chi2 = 0
         for label in prot.labels:
-            x,y = np.loadtxt(f'{cwd}/{prot.path}/calcPREs/res-{label}.dat',usecols=(0,1),unpack=True)
+            x,y = np.loadtxt(f'{cwd}/{dataset}/{prot.path}/calcPREs/res-{label}.dat',usecols=(0,1),unpack=True)
             measured_resnums = np.where(~np.isnan(y))[0]
-            data = pd.read_pickle(f'{cwd}/{prot.path}/calcPREs/res-{label}.pkl', compression='gzip')
+            data = pd.read_pickle(f'{cwd}/{dataset}/{prot.path}/calcPREs/res-{label}.pkl', compression='gzip')
             gamma_2_av = np.full(y.size, fill_value=np.NaN)
             s_pre = np.power(data['r3'], 2)/data['r6']*data['angular']
             gamma_2 = Operations.calc_gamma_2(data['r6'], s_pre, tau_c = tc * 1e-9, tau_t = 1e-10, wh = prot.wh, k = 1.23e16)
@@ -66,18 +66,18 @@ def optTauC(cwd, prot):
     tc_min = tau_c[np.argmin(chi2list)]  # pick up the smallest value
 
     for label in prot.labels:
-        x,y = np.loadtxt(f'{cwd}/{prot.path}/calcPREs/res-{label}.dat',usecols=(0,1),unpack=True)
+        x,y = np.loadtxt(f'{cwd}/{dataset}/{prot.path}/calcPREs/res-{label}.dat',usecols=(0,1),unpack=True)
         measured_resnums = np.where(~np.isnan(y))[0]
-        data = pd.read_pickle(f'{cwd}/{prot.path}/calcPREs/res-{label}.pkl', compression='gzip')
+        data = pd.read_pickle(f'{cwd}/{dataset}/{prot.path}/calcPREs/res-{label}.pkl', compression='gzip')
         gamma_2_av = np.full(y.size, fill_value=np.NaN)
         s_pre = np.power(data['r3'], 2)/data['r6']*data['angular']
         gamma_2 = Operations.calc_gamma_2(data['r6'], s_pre, tau_c = tc_min * 1e-9, tau_t = 1e-10, wh = prot.wh, k = 1.23e16)
         gamma_2 = np.ma.MaskedArray(gamma_2, mask = np.isnan(gamma_2))
         gamma_2_av[measured_resnums] = np.ma.average(gamma_2, axis=0).data
         i_ratio = 10 * np.exp(-gamma_2_av * 0.01) / ( 10 + gamma_2_av )
-        np.savetxt(f'{cwd}/{prot.path}/calcPREs/res-{label}.dat',np.c_[x,i_ratio,gamma_2_av])
+        np.savetxt(f'{cwd}/{dataset}/{prot.path}/calcPREs/res-{label}.dat',np.c_[x,i_ratio,gamma_2_av])
 
-    return tc_min, calcChi2(cwd, prot)
+    return tc_min, calcChi2(cwd, dataset, prot)
 
 def reweightRg(df,name,prot):
     #rg = np.sqrt( np.dot(np.power(prot.rgarray,2), prot.weights) )
@@ -86,8 +86,8 @@ def reweightRg(df,name,prot):
     #chi2_rg = np.power((prot.expRg-rg)/(prot.expRg*0.03),2)
     return rg, chi2_rg
 
-def calcRg(cwd, df,name,prot):
-    t = md.load_dcd(f"{cwd}/{prot.path}/{name}.dcd",f"{cwd}/{prot.path}/{name}.pdb")
+def calcRg(cwd,dataset, df,name,prot):
+    t = md.load_dcd(f"{cwd}/{dataset}/{prot.path}/{name}.dcd",f"{cwd}/{dataset}/{prot.path}/{name}.pdb")
     residues = [res.name for res in t.top.atoms]
     masses = df.loc[residues,'MW'].values
     masses[0] += 2

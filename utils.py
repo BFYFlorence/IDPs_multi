@@ -20,8 +20,8 @@ submission_1 = Template(
 #SBATCH --cpus-per-task={{cpu_num}}
 #SBATCH --partition=sbinlab_ib2
 #SBATCH --mem=1GB
-#SBATCH -o {{cwd}}/{{name}}/{{cycle}}/out_{{replica}}
-#SBATCH -e {{cwd}}/{{name}}/{{cycle}}/err_{{replica}}
+#SBATCH -o {{cwd}}/{{dataset}}/{{name}}/{{cycle}}/out_{{replica}}
+#SBATCH -e {{cwd}}/{{dataset}}/{{name}}/{{cycle}}/err_{{replica}}
 
 source /groups/sbinlab/fancao/.bashrc
 
@@ -31,7 +31,7 @@ echo "Number of cpus requested per task:" $SLURM_CPUS_PER_TASK
 echo "Number of tasks requested per core:" $SLURM_NTASKS_PER_CORE
 echo $SLURM_CPUS_ON_NODE
 
-python3 {{cwd}}/simulate.py --config {{cwd}}/{{name}}/{{cycle}}/config_{{replica}}.yaml --cpu_num {{cpu_num}} --overwrite {{overwrite}}""")
+python3 {{cwd}}/simulate.py --config {{cwd}}/{{dataset}}/{{name}}/{{cycle}}/config_{{replica}}.yaml --cpu_num {{cpu_num}} --overwrite {{overwrite}}""")
 
 submission_2 = Template(
 """#!/bin/bash
@@ -41,8 +41,8 @@ submission_2 = Template(
 #SBATCH --partition=sbinlab_ib2
 #SBATCH --dependency=afterok{% for id in jobid %}:{{id}}{% endfor %}
 #SBATCH --mem=10GB
-#SBATCH -o {{cwd}}/{{name}}/{{cycle}}/merge_out
-#SBATCH -e {{cwd}}/{{name}}/{{cycle}}/merge_err
+#SBATCH -o {{cwd}}/{{dataset}}/{{name}}/{{cycle}}/merge_out
+#SBATCH -e {{cwd}}/{{dataset}}/{{name}}/{{cycle}}/merge_err
 
 source /groups/sbinlab/fancao/.bashrc
 
@@ -52,7 +52,7 @@ echo "Number of cpus requested per task:" $SLURM_CPUS_PER_TASK
 echo "Number of tasks requested per core:" $SLURM_NTASKS_PER_CORE
 echo $SLURM_CPUS_ON_NODE
 
-python {{cwd}}/merge_replicas.py --cwd {{cwd}} --name {{name}} --cycle {{cycle}} --replicas {{replicas}} --discard_first_nframes {{discard_first_nframes}}""")
+python {{cwd}}/merge_replicas.py --cwd {{cwd}} --dataset {{dataset}} --name {{name}} --cycle {{cycle}} --replicas {{replicas}} --discard_first_nframes {{discard_first_nframes}}""")
 
 submission_3 = Template(
 """#!/bin/bash
@@ -61,8 +61,8 @@ submission_3 = Template(
 #SBATCH --partition=sbinlab_ib2
 #SBATCH --mem=90GB
 #SBATCH --dependency=afterok{% for id in jobid %}:{{id}}{% endfor %}
-#SBATCH -o {{cwd}}/{{cycle}}_out
-#SBATCH -e {{cwd}}/{{cycle}}_err
+#SBATCH -o {{cwd}}/{{dataset}}/{{cycle}}_out
+#SBATCH -e {{cwd}}/{{dataset}}/{{cycle}}_err
 
 source /groups/sbinlab/fancao/.bashrc
 
@@ -76,14 +76,14 @@ declare -a proteinsPRE_list=({{proteins}})
 
 for name in ${proteinsPRE_list[@]}
 do
-cp -r {{cwd}}/expPREs/$name/expPREs $name
-python {{cwd}}/pulchra.py --cwd {{cwd}} --name $name --num_cpus $SLURM_CPUS_ON_NODE --pulchra /groups/sbinlab/fancao/pulchra
+cp -r {{cwd}}/expPREs/$name/expPREs {{cwd}}/{{dataset}}/$name
+python {{cwd}}/pulchra.py --cwd {{cwd}} --dataset {{dataset}} --name $name --num_cpus $SLURM_CPUS_ON_NODE --pulchra /groups/sbinlab/fancao/pulchra
 done
 
-python {{cwd}}/optimize.py --cwd {{cwd}} --log LOG --cycle {{cycle}} --num_cpus $SLURM_CPUS_ON_NODE --cutoff {{cutoff}}""")
+python {{cwd}}/optimize.py --cwd {{cwd}} --dataset {{dataset}} --log LOG --cycle {{cycle}} --num_cpus $SLURM_CPUS_ON_NODE --cutoff {{cutoff}}""")
 
-def write_config(cwd, fbase,config_data,config_filename):
-    with open(f'{cwd}/{fbase}/{config_filename}','w') as stream:
+def write_config(cwd, dataset, fbase,config_data,config_filename):
+    with open(f'{cwd}/{dataset}/{fbase}/{config_filename}','w') as stream:
         yaml.dump(config_data,stream)
 
 def set_harmonic_network(N,pos,pae_inv,yu,ah,ssdomains=None,cs_cutoff=0.9,k_restraint=700):
@@ -118,7 +118,6 @@ def set_harmonic_network(N,pos,pae_inv,yu,ah,ssdomains=None,cs_cutoff=0.9,k_rest
 
 def set_interactions(system, residues, prot, calvados_version, lj_eps, cutoff, yukawa_kappa, yukawa_eps, N, n_chains=1):
     hb = openmm.openmm.HarmonicBondForce()
-
     # interactions
     energy_expression = 'select(step(r-2^(1/6)*s),4*eps*l*((s/r)^12-(s/r)^6-shift),4*eps*((s/r)^12-(s/r)^6-l*shift)+eps*(1-l))'
     if calvados_version in [1, 2]:
@@ -272,9 +271,9 @@ def slab_dimensions(N):
         Nsteps = int(6e7)
     return L, Lz, margin, Nsteps
 
-def load_parameters(flib, cycle, calvados_version):
+def load_parameters(flib, dataset, cycle, calvados_version):
     if calvados_version in [1,2]:
-        residues = pd.read_csv(f'{flib}/residues_{cycle-1}.csv').set_index('one')
+        residues = pd.read_csv(f'{flib}/{dataset}/residues_{cycle-1}.csv').set_index('one')
 
         """if calvados_version == 1:
             r.lambdas = r['CALVADOS1'] # select CALVADOS1 or CALVADOS2 stickiness parameters

@@ -11,6 +11,7 @@ def simulate(config, overwrite, cpu_num):
     * config is a dictionary """
 
     # parse config
+    dataset = config["dataset"]
     name, temp, ionic = config['name'], config['temp'], config['ionic']
     cutoff, steps, wfreq = config['cutoff'], config['steps'], config['wfreq']
     L = config['L']
@@ -46,7 +47,7 @@ def simulate(config, overwrite, cpu_num):
 
     print(f'calvados version: {calvados_version}')
     # load residue parameters
-    residues = load_parameters(flib, cycle, calvados_version)
+    residues = load_parameters(flib,dataset, cycle, calvados_version)
     print(residues)
 
     # build protein dataframe
@@ -90,7 +91,7 @@ def simulate(config, overwrite, cpu_num):
     # build mdtraj topology from fasta
     top = build_topology(fasta, n_chains=n_chains)
     # print(top.n_bonds)
-    pdb_cg = f'{flib}/{name}/{cycle}/top_{replica}.pdb'
+    pdb_cg = f'{flib}/{dataset}/{name}/{cycle}/top_{replica}.pdb'
 
     a = md.Trajectory(pos, top, 0, [L, L, Lz], [90, 90, 90])
     a.save_pdb(pdb_cg, force_overwrite=True)
@@ -146,9 +147,9 @@ def simulate(config, overwrite, cpu_num):
         simulation.minimizeEnergy()
         state = simulation.context.getState(getPositions=True)
         pos2 = state.getPositions(asNumpy=True)
-        simulation.reporters.append(app.dcdreporter.DCDReporter(f'{flib}/{name}/{cycle}/{replica}.dcd', wfreq, enforcePeriodicBox=False, append=False))
+        simulation.reporters.append(app.dcdreporter.DCDReporter(f'{flib}/{dataset}/{name}/{cycle}/{replica}.dcd', wfreq, enforcePeriodicBox=False, append=False))
 
-    simulation.reporters.append(app.statedatareporter.StateDataReporter(f'{flib}/{name}/{cycle}/statedata_{replica}.log', int(wfreq * 10),
+    simulation.reporters.append(app.statedatareporter.StateDataReporter(f'{flib}/{dataset}/{name}/{cycle}/statedata_{replica}.log', int(wfreq * 10),
                                                                         step=True, speed=True, elapsedTime=True,
                                                                         separator='\t'))
 

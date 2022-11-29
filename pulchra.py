@@ -10,6 +10,7 @@ from argparse import ArgumentParser
 parser = ArgumentParser()
 parser.add_argument('--cwd',dest='cwd',type=str)
 parser.add_argument('--name',dest='name',type=str)
+parser.add_argument('--dataset',dest='dataset',type=str)
 parser.add_argument('--pulchra',dest='pulchra_path',type=str)
 parser.add_argument('--num_cpus',dest='num_cpus',type=int)
 args = parser.parse_args()
@@ -45,20 +46,20 @@ def run_pulchra(cwd, prot_path,pulchra_path,i,frame):
     os.remove(outname)  # delete pdbfiles
     return trajtemp.xyz
 
-def reconstruct_pulchra(cwd, pulchra_path,prot_name,num_cpus):
+def reconstruct_pulchra(cwd, dataset, pulchra_path,prot_name,num_cpus):
     """
     This function reconstructs an all-atom trajectory from a Calpha trajectory.
     Input: trajectory nvt.xtc and topology nvt.gro file.
     n_procs: number of processors to use in parallel.
     Return: A reconstructed mdtraj trajectory.
     """
-    prot = pd.read_pickle(f'{cwd}/proteinsPRE.pkl').loc[prot_name]
+    prot = pd.read_pickle(f'{cwd}/{dataset}/proteinsPRE.pkl').loc[prot_name]
     print(prot)
-    t = fix_topology(f'{cwd}/{prot.path}/{prot_name}.dcd',f'{cwd}/{prot.path}/{prot_name}.pdb')
-    name = f'{cwd}/{prot.path}/0.pdb'
+    t = fix_topology(f'{cwd}/{dataset}/{prot.path}/{prot_name}.dcd',f'{cwd}/{dataset}/{prot.path}/{prot_name}.pdb')
+    name = f'{cwd}/{dataset}/{prot.path}/0.pdb'
     t[0].save(name)
     subprocess.run([pulchra_path,name])
-    s = md.load_pdb(f'{cwd}/{prot.path}/0.rebuilt.pdb')
+    s = md.load_pdb(f'{cwd}/{dataset}/{prot.path}/0.rebuilt.pdb')
     # n_blocks = t.n_frames // num_cpus
     xyz = np.empty((0,s.n_atoms,3))
     xyz = np.append( xyz, s.xyz )
@@ -74,12 +75,12 @@ def reconstruct_pulchra(cwd, pulchra_path,prot_name,num_cpus):
         for atom in residue.atoms:
             top.add_atom(atom.name, element=atom.element, residue=res)
     allatom1 = md.Trajectory(allatom0.xyz, top, t.time, t.unitcell_lengths, t.unitcell_angles)
-    allatom1.save_dcd(f'{cwd}/{prot.path}/allatom.dcd')
-    allatom1[0].save_pdb(f'{cwd}/{prot.path}/allatom.pdb')
+    allatom1.save_dcd(f'{cwd}/{dataset}/{prot.path}/allatom.dcd')
+    allatom1[0].save_pdb(f'{cwd}/{dataset}/{prot.path}/allatom.pdb')
     print(prot_name,'has',allatom1.n_frames,'frames')
 
 starttime = time.time()  # begin timer
-reconstruct_pulchra(args.cwd, args.pulchra_path, args.name, args.num_cpus)
+reconstruct_pulchra(args.cwd, args.dataset, args.pulchra_path, args.name, args.num_cpus)
 endtime = time.time()  # end timer
 target_seconds = endtime - starttime  # total used time
 print(f"{args.name} total pulchra used time: {target_seconds // 3600}h {(target_seconds // 60) % 60}min {np.round(target_seconds % 60, 2)}s")

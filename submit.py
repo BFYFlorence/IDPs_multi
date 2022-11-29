@@ -14,6 +14,7 @@ import time
 #                              general simulation details                                                        #
 ########################################################################################################################
 cwd = "/groups/sbinlab/fancao/IDPs_multi"  # current working directory
+dataset = "IDPs_allmultidomain"  # onlyIDPs, IDPs_allmultidomain,
 cycle = 0  # current training cycles
 replicas = 20  # nums of replica for each sequence
 pfname = 'CPU'  # platform to simulate
@@ -28,9 +29,6 @@ nframes = 200  # total number of frames to keep (exclude discarded frames)
 #                              multidomain simulation details                                                    #
 ########################################################################################################################
 kb = 8.31451E-3  # unit:KJ/(mol*K);
-use_pdb = True
-use_hnetwork = True
-use_ssdomains = True
 k_restraint = 700.  # unit:KJ/(mol*nm^2);
 fdomains = f'{cwd}/domains.yaml'
 slab = False  # slab simulation parameters
@@ -42,38 +40,48 @@ multidomain_names = ["THB_C2","Ubq2","Ubq3","Gal3","TIA1","Ubq4","hnRNPA1","C5_C
 ########################################################################################################################
 #                                             setup simulations                                                        #
 ########################################################################################################################
+if not os.path.isdir(f"{cwd}/{dataset}"):
+    os.system(f"mkdir -p {cwd}/{dataset}")
 if cycle == 0:
     r = pd.read_csv(f'{cwd}/residues_{cycle-1}.csv').set_index('one')
     r.lambdas = 0.5
     r = r[['three', 'MW', 'lambdas', 'sigmas', 'q']]
-    r.to_csv(f'{cwd}/residues_{cycle-1}.csv')
+    r.to_csv(f'{cwd}/{dataset}/residues_{cycle-1}.csv')
 
 proteinsPRE = initProteinsPRE(cycle)
 proteinsRgs = initProteinsRgs(cycle)
 allproteins = pd.concat((proteinsPRE,proteinsRgs),sort=True)
 allproteins['N'] = allproteins['fasta'].apply(lambda x : len(x))
 allproteins = allproteins.sort_values('N')
-proteinsPRE.to_pickle(f'{cwd}/proteinsPRE.pkl')
-proteinsRgs.to_pickle(f'{cwd}/proteinsRgs.pkl')
-allproteins.to_pickle(f'{cwd}/allproteins.pkl')
-
-print("Properties used:\n", pd.read_csv(f'{cwd}/residues_{cycle-1}.csv'))
+proteinsPRE.to_pickle(f'{cwd}/{dataset}/proteinsPRE.pkl')
+proteinsRgs.to_pickle(f'{cwd}/{dataset}/proteinsRgs.pkl')
+allproteins.to_pickle(f'{cwd}/{dataset}/allproteins.pkl')
+print("Properties used:\n", pd.read_csv(f'{cwd}/{dataset}/residues_{cycle-1}.csv'))
 
 # simulate
 jobid_1 = defaultdict(list)
 for name, prot in allproteins.iterrows():
-    if not name in multidomain_names:
-        continue
-    ffasta = f'{cwd}/multidomain_fasta/{name}.fasta'  # no fasta needed if pdb provided
-    input_pae = decide_best_pae(cwd, name)
-    fpdb = f'{cwd}/af2pre/{name}/ranked_0.pdb'  # af2 predicted structure
+    if name in multidomain_names:
+        ffasta = f'{cwd}/multidomain_fasta/{name}.fasta'  # no fasta needed if pdb provided
+        input_pae = decide_best_pae(cwd, name)
+        fpdb = f'{cwd}/af2pre/{name}/ranked_0.pdb'  # af2 predicted structure
+        use_pdb = True
+        use_hnetwork = True
+        use_ssdomains = True
+    else:
+        ffasta = ""  # no fasta needed if pdb provided
+        input_pae = None
+        fpdb = ""  # af2 predicted structure
+        use_pdb = False
+        use_hnetwork = False
+        use_ssdomains = False
 
     jobid_name = []
-    if not os.path.isdir(f"{cwd}/{name}/{cycle}"):
-        os.system(f"mkdir -p {cwd}/{name}/{cycle}")
+    if not os.path.isdir(f"{cwd}/{dataset}/{name}/{cycle}"):
+        os.system(f"mkdir -p {cwd}/{dataset}/{name}/{cycle}")
     for replica in range(replicas):
-        if (not os.path.isfile(f"{cwd}/{prot.path}/{replica}.dcd")) or len(MDAnalysis.coordinates.DCD.DCDReader(
-                f"{cwd}/{name}/{cycle}/{replica}.dcd")) != int(nframes + discard_first_nframes):
+        if (not os.path.isfile(f"{cwd}/{dataset}/{prot.path}/{replica}.dcd")) or len(MDAnalysis.coordinates.DCD.DCDReader(
+                f"{cwd}/{dataset}/{name}/{cycle}/{replica}.dcd")) != int(nframes + discard_first_nframes):
             config_filename = f'config_{replica}.yaml'
             N_res = prot.N
             L = int(np.ceil((N_res - 1) * 0.38 + 4))
@@ -84,12 +92,13 @@ for name, prot in allproteins.iterrows():
                                temp=float(prot.temp), ionic=float(prot.ionic), cycle=cycle, replica=replica,
                                cutoff=cutoff, L=L, wfreq=N_save, slab=slab, steps=N_steps, use_pdb=use_pdb, fpdb=fpdb,
                                use_hnetwork=use_hnetwork, fdomains=fdomains, use_ssdomains=use_ssdomains,
-                               input_pae=input_pae, k_restraint=k_restraint, runtime=runtime, seq=prot.fasta)
-            write_config(cwd, prot.path, config_data, config_filename=config_filename)
-            with open(f"{cwd}/{name}/{cycle}/{name}_{cycle}_{replica}.sh", 'w') as submit:
-                submit.write(submission_1.render(cwd=cwd, name=name,cycle=f'{cycle}', replica=f'{replica}',cutoff=f'{cutoff}',
+                               input_pae=input_pae, k_restraint=k_restraint, runtime=runtime, seq=prot.fasta,
+                               dataset=dataset)
+            write_config(cwd, dataset, prot.path, config_data, config_filename=config_filename)
+            with open(f"{cwd}/{dataset}/{name}/{cycle}/{name}_{cycle}_{replica}.sh", 'w') as submit:
+                submit.write(submission_1.render(cwd=cwd, dataset=dataset, name=name,cycle=f'{cycle}', replica=f'{replica}',cutoff=f'{cutoff}',
                                                  overwrite=True, cpu_num=cpu_num))
-            proc = subprocess.run(['sbatch', f"{cwd}/{name}/{cycle}/{name}_{cycle}_{replica}.sh"],capture_output=True)
+            proc = subprocess.run(['sbatch', f"{cwd}/{dataset}/{name}/{cycle}/{name}_{cycle}_{replica}.sh"],capture_output=True)
             print(proc)
             jobid_name.append(int(proc.stdout.split(b' ')[-1].split(b'\\')[0]))
             time.sleep(0.25)
@@ -97,22 +106,22 @@ for name, prot in allproteins.iterrows():
     jobid_1[name] = jobid_name
 print(f'Simulating sequences: {jobid_1}')
 
-"""# merge
+# merge
 jobid_2 = []
-for name in jobid_1.keys():
+for name in allproteins.index:
     prot = allproteins.loc[name]
-    if (not os.path.isfile(f"{cwd}/{prot.path}/{name}.dcd")) or len(
-            MDAnalysis.coordinates.DCD.DCDReader(f"{cwd}/{prot.path}/{name}.dcd")) != int(replicas * nframes):
-        with open(f"{cwd}/{name}/{cycle}/{name}_{cycle}.sh", 'w') as submit:
-            submit.write(submission_2.render(cwd=cwd, jobid=jobid_1[name],name=name,cycle=f'{cycle}', replicas=replicas,
+    if (not os.path.isfile(f"{cwd}/{dataset}/{prot.path}/{name}.dcd")) or len(
+            MDAnalysis.coordinates.DCD.DCDReader(f"{cwd}/{dataset}/{prot.path}/{name}.dcd")) != int(replicas * nframes):
+        with open(f"{cwd}/{dataset}/{name}/{cycle}/{name}_{cycle}.sh", 'w') as submit:
+            submit.write(submission_2.render(cwd=cwd, dataset=dataset, jobid=jobid_1[name],name=name,cycle=f'{cycle}', replicas=replicas,
                                              discard_first_nframes=discard_first_nframes))
-        proc = subprocess.run(['sbatch',f'{cwd}/{name}/{cycle}/{name}_{cycle}.sh'],capture_output=True)
+        proc = subprocess.run(['sbatch',f'{cwd}/{dataset}/{name}/{cycle}/{name}_{cycle}.sh'],capture_output=True)
         print(proc)
         jobid_2.append(int(proc.stdout.split(b' ')[-1].split(b'\\')[0]))
         time.sleep(0.25)
 
 # optimize
-with open(f'{cwd}/opt_{cycle}.sh', 'w') as submit:
-    submit.write(submission_3.render(cwd=cwd, jobid=jobid_2,proteins=' '.join(proteinsPRE.index),
+with open(f'{cwd}/{dataset}/opt_{cycle}.sh', 'w') as submit:
+    submit.write(submission_3.render(cwd=cwd, dataset=dataset, jobid=jobid_2,proteins=' '.join(proteinsPRE.index),
                  cycle=f'{cycle}',cutoff=f'{cutoff}'))
-subprocess.run(['sbatch',f'{cwd}/opt_{cycle}.sh'])"""
+subprocess.run(['sbatch',f'{cwd}/{dataset}/opt_{cycle}.sh'])
