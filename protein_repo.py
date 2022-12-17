@@ -18,7 +18,7 @@ def fasta_from_pdb(pdb):
     fastapdb = SeqUtils.seq1(res3)
     return fastapdb
 
-def addProtein(df,name,seq=None,use_pdb=False,pdb=None,ffasta=None,eps_factor=0.2,pH=7.0,ionic=0.15,temp=300):
+def addProtein(df,name,seq=None,use_pdb=False,pdb=None,path2fasta=None,eps_factor=0.2,pH=7.0,ionic=0.15,temp=300):
     """if use_pdb:
         fasta = fasta_from_pdb(pdb)
     else:
@@ -48,7 +48,7 @@ def read_fasta(ffasta):
     return records
 
 def get_ssdomains(name,fdomains):
-    with open(f'{fdomains}','r') as f:
+    with open(fdomains,'r') as f:
         stream = f.read()
         domainbib = yaml.safe_load(stream)
 
@@ -57,7 +57,7 @@ def get_ssdomains(name,fdomains):
     ssdomains = []
 
     for domain in domains:
-        ssdomains.append(list(range(domain[0],domain[1])))
+        ssdomains.append(list(range(domain[0],domain[1]+1)))
     
     return ssdomains
 

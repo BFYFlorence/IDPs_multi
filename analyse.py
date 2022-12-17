@@ -46,18 +46,35 @@ def optTauC(cwd,dataset, prot):
     for tc in tau_c:
         chi2 = 0
         for label in prot.labels:
+            # the first two columns in res-{label}.dat
             x,y = np.loadtxt(f'{cwd}/{dataset}/{prot.path}/calcPREs/res-{label}.dat',usecols=(0,1),unpack=True)
+            # x: [  1.   2.   3. ... 218. 219. 220.] (number of residue)
+            # y: [nan 0.14382832 0.28971916 ... 0.99804923 0.99705705 0.99578599] (number of residue)
+
+            # index of residues with a real value (start with 0)
             measured_resnums = np.where(~np.isnan(y))[0]
             data = pd.read_pickle(f'{cwd}/{dataset}/{prot.path}/calcPREs/res-{label}.pkl', compression='gzip')
+            # the reason why nan shows up is that the corresponding steric partition function is under cutoff.
+            # So it is discarded
+            # print(data)
+            # r3[[nan, ... nan], ... [1.47580169e-04, ... 3.25930228e-06]]  (traj_len, measured_resnums_len)
+            # r6 similar to r3, but distributions of nan are not necessarily the same
+            # angular the similar as the above
+            # print(data.index)  Index(['r3', 'r6', 'angular'], dtype='object')
             gamma_2_av = np.full(y.size, fill_value=np.NaN)
-            s_pre = np.power(data['r3'], 2)/data['r6']*data['angular']
-            gamma_2 = Operations.calc_gamma_2(data['r6'], s_pre, tau_c = tc * 1e-9, tau_t = 1e-10, wh = prot.wh, k = 1.23e16)
+            s_pre = np.power(data['r3'], 2)/data['r6']*data['angular']  # calculate following the formula
+            gamma_2 = Operations.calc_gamma_2(data['r6'], s_pre, tau_c = tc * 1e-9, tau_t = 1e-10, wh = prot.wh, k = 1.23e16)  # calculate following the formula
+            # print(gamma_2.shape)  (traj_len, measured_resnums_len)
             gamma_2 = np.ma.MaskedArray(gamma_2, mask = np.isnan(gamma_2))
-            gamma_2_av[measured_resnums] = np.ma.average(gamma_2, axis=0).data
+            gamma_2_av[measured_resnums] = np.ma.average(gamma_2, axis=0).data  # averaged over traj
+            # For samples with particularly high PRE rates it can be infeasible to obtain Γ2 from 174 multiple time-point measurements,
+            # https://doi.org/10.1101/2020.08.09.243030
             if prot.obs == 'ratio':
                 y = 10 * np.exp(-gamma_2_av * 0.01) / ( 10 + gamma_2_av )
             else:
                 y = gamma_2_av
+
+            # calculate chi
             chi = (prot.expPREs.value[label].values - y) / prot.expPREs.error[label].values
             chi = chi[~np.isnan(chi)]
             chi2 += np.nansum( np.power( chi, 2) ) / chi.size
@@ -98,6 +115,7 @@ def calcRg(cwd,dataset, df,name,prot):
     si = np.linalg.norm(t.xyz - cm[:,np.newaxis,:],axis=2)
     # calculate rg
     rgarray = np.sqrt(np.sum(si**2*masses,axis=1)/masses.sum())
+    np.save(f"{cwd}/{dataset}/{prot.path}/Rg_traj.npy", rgarray)
     #rg = np.sqrt( np.power(rgarray, 2).mean() )
     rg = rgarray.mean()
     chi2_rg = np.power((prot.expRg-rg)/prot.expRgErr,2)
@@ -120,7 +138,6 @@ SYGQPQSGSYEQQPSYGGQQQSYGQQQSYNPPQGYGQQNQYNS""".replace('\n', '')
     fasta_aSyn = """MDVFMKGLSKAKEGVVAAAEKTKQGVAEAAGKTKEGVLYVGSKTKEGVVHGVATVAEKTK
 EQVTNVGGAVVTGVTAVAQKTVEGAGSIAAATGFVKKDQLGKNEEGAPQEGILEDMPVDP
 DNEAYEMPSEEGYQDYEPEA""".replace('\n', '')
-
     proteins.loc['aSyn'] = dict(labels=[24, 42, 62, 87, 103], tau_c=1.0,
                                wh=700,temp=283,obs='ratio',pH=7.4,fasta=list(fasta_aSyn),ionic=0.2,weights=False,path='aSyn'+outdir)
     proteins.loc['OPN'] = dict(labels=[10, 33, 64, 88, 117, 130, 144, 162, 184, 203], tau_c=3.0,
@@ -131,7 +148,7 @@ DNEAYEMPSEEGYQDYEPEA""".replace('\n', '')
                                wh=850,temp=298,obs='rate',pH=5.5,fasta=list(fasta_FUS12E),ionic=0.15,weights=False,path='FUS12E'+outdir)
     return proteins
 
-def initProteinsRgs(cycle):
+def initProteinsRgs(cycle, exclusion_GS):
     outdir = '/{:d}'.format(cycle)
     proteins = pd.DataFrame(columns=['temp','expRg','expRgErr','Rg','rgarray','eff','chi2_rg','weights','pH','ionic','fasta','path'],dtype=object)
     fasta_GHRICD = """SKQQRIKMLILPPVPVPKIKGIDPDLLKEGKLEEVNTILAIHDSYKPEFHSDDSWVEFIELDIDEPDEKTEESDTDRLLSSDHEKSHSNL
@@ -300,9 +317,7 @@ VGEDQVNLTVKVIDVPDAPAAPKISNVGEDSCTVQWEPPAYDGGQPILGYILERKKKKSY
 RWMRLNFDLIQELSHEARRMIEGVVYEMRVYAVNAIGMSRPSPASQPFMPIGPPSEPTHL
 AVEDVSDTTVSLKWRPPERVGAGGLDGYSVEYCPEGCSEWVAALQGLTEHTSILVKDLPT
 GARLLFRVRAHNMAGPGAPVTTTEPVTV""".replace('\n', '')
-    fasta_hSUMO_hnRNPA1 = """MGSSHHHHHHGSGLVPRGSASMSDSEVNQEAKPEVKPEVKPETHINLKVSDGSSEIFFKI
-KKTTPLRRLMEAFAKRQGKEMDSLRFLYDGIRIQADQTPEDLDMEDNDIIEAHREQIGGM
-SKSESPKEPEQLRKLFIGGLSFETTDESLRSHFEQWGTLTDCVVMRDPNTKRSRGFGFVT
+    fasta_hSUMO_hnRNPA1 = """MGSSHHHHHHGSGLVPRGSASMSDSEVNQEAKPEVKPEVKPETHINLKVSDGSSEIFFKIKKTTPLRRLMEAFAKRQGKEMDSLRFLYDGIRIQADQTPEDLDMEDNDIIEAHREQIGGMSKSESPKEPEQLRKLFIGGLSFETTDESLRSHFEQWGTLTDCVVMRDPNTKRSRGFGFVT
 YATVEEVDAAMNARPHKVDGRVVEPKRAVSREDSQRPGAHLTVKKIFVGGIKEDTEEHHL
 RDYFEQYGKIEVIEIMTDRGSGKKRGFAFVTFDDHDSVDKIVIQKYHTVNGHNCEVRKAL
 SKQEMASASSSQRGRSGSGNFGGGRGGGFGGNDNFGRGGNFSGRGGFGGSRGGGGYGGSG
@@ -361,15 +376,25 @@ SGSGSGSGSGSGSGSGSGSGSGSGSGSGSGSGSGSGSKLMVSKGEEDNMASLPATHELHI
 FGSINGVDFDMVGQGTGNPNDGYEELNLKSTKGDLQFSPWILVPHIGYGFHQYLPYPDGM
 SPFQAAMVDGSGYQVHRTMQFEDGASLTVNYRYTYEGSHIKGEAQVKGTGFPADGPVMTN
 SLTAADWCRSKKTYPNDKTIISTFKWSYTTGNGKRYRSTARTTYTFAKPMAANYLKNQPM
-YVFRKTELKHSKTELNFKEWQKAFTD""".replace('\n', '')
+YVFRKTELKHSKTELNFKEWQKAFTD""".replace('\n', '')  # 566
 
-    proteins.loc['GS48'] = dict(temp=293, expRg=4.11, expRgErr=0.02, pH=7.0, fasta=list(fasta_GS48), ionic=0.15, path='GS48' + outdir)  # Tórur's thesis, ph is not checked yet
-    proteins.loc['GS32'] = dict(temp=293, expRg=3.78, expRgErr=0.02, pH=7.0, fasta=list(fasta_GS32), ionic=0.15, path='GS32' + outdir)  # Tórur's thesis, ph is not checked yet
-    proteins.loc['GS24'] = dict(temp=293, expRg=3.57, expRgErr=0.01, pH=7.0, fasta=list(fasta_GS24), ionic=0.15, path='GS24' + outdir)  # Tórur's thesis, ph is not checked yet
-    proteins.loc['GS16'] = dict(temp=293, expRg=3.45, expRgErr=0.01, pH=7.0, fasta=list(fasta_GS16), ionic=0.15, path='GS16' + outdir)  # Tórur's thesis, ph is not checked yet
-    proteins.loc['GS8'] = dict(temp=293, expRg=3.37, expRgErr=0.01, pH=7.0, fasta=list(fasta_GS8), ionic=0.15, path='GS8' + outdir)  # Tórur's thesis, ph is not checked yet
-    proteins.loc['GS0'] = dict(temp=293, expRg=3.20, expRgErr=0.01, pH=7.0, fasta=list(fasta_GS0), ionic=0.15, path='GS0' + outdir)  # Tórur's thesis, ph is not checked yet
-    proteins.loc['hSUMO_hnRNPA1'] = dict(temp=300, expRg=3.37, expRgErr=0.01, pH=7.0, fasta=list(fasta_hSUMO_hnRNPA1), ionic=0.1, path='hSUMO_hnRNPA1' + outdir)  # Tórur's thesis, ph is not checked yet
+
+    if not exclusion_GS:
+        proteins.loc['GS48'] = dict(temp=293, expRg=4.11, expRgErr=0.02, pH=7.0, fasta=list(fasta_GS48), ionic=0.15,
+                                    path='GS48' + outdir)  # Tórur's thesis, ph is not checked yet
+        proteins.loc['GS32'] = dict(temp=293, expRg=3.78, expRgErr=0.02, pH=7.0, fasta=list(fasta_GS32), ionic=0.15,
+                                    path='GS32' + outdir)  # Tórur's thesis, ph is not checked yet
+        proteins.loc['GS24'] = dict(temp=293, expRg=3.57, expRgErr=0.01, pH=7.0, fasta=list(fasta_GS24), ionic=0.15,
+                                    path='GS24' + outdir)  # Tórur's thesis, ph is not checked yet
+        proteins.loc['GS16'] = dict(temp=293, expRg=3.45, expRgErr=0.01, pH=7.0, fasta=list(fasta_GS16), ionic=0.15,
+                                    path='GS16' + outdir)  # Tórur's thesis, ph is not checked yet
+        proteins.loc['GS8'] = dict(temp=293, expRg=3.37, expRgErr=0.01, pH=7.0, fasta=list(fasta_GS8), ionic=0.15,
+                                   path='GS8' + outdir)  # Tórur's thesis, ph is not checked yet
+        proteins.loc['GS0'] = dict(temp=293, expRg=3.20, expRgErr=0.01, pH=7.0, fasta=list(fasta_GS0), ionic=0.15,
+                                   path='GS0' + outdir)  # Tórur's thesis, ph is not checked yet
+    proteins.loc['hSUMO_hnRNPA1'] = dict(temp=300, expRg=3.37, expRgErr=0.01, pH=7.0, fasta=list(fasta_hSUMO_hnRNPA1),
+                                         ionic=0.1,
+                                         path='hSUMO_hnRNPA1' + outdir)  # Tórur's thesis, ph is not checked yet
     proteins.loc['C5_C6_C7'] = dict(temp=298, expRg=3.75, expRgErr=0.01, pH=7.0, fasta=list(fasta_C5_C6_C7), ionic=0.28, path='C5_C6_C7' + outdir)  # Tórur's thesis, ph is not checked yet
     proteins.loc['Ubq4'] = dict(temp=293, expRg=3.19, expRgErr=0.02, pH=7.0, fasta=list(fasta_Ubq4), ionic=0.33, path='Ubq4' + outdir)  # Tórur's thesis, ph is not checked yet
     proteins.loc['TIA1'] = dict(temp=300, expRg=2.75, expRgErr=0.03, pH=7.0, fasta=list(fasta_TIA1), ionic=0.1, path='TIA1' + outdir)  # Tórur's thesis, ph is not checked yet
@@ -378,7 +403,7 @@ YVFRKTELKHSKTELNFKEWQKAFTD""".replace('\n', '')
     proteins.loc['Ubq2'] = dict(temp=293, expRg=2.19, expRgErr=0.02, pH=7.0, fasta=list(fasta_Ubq2), ionic=0.33, path='Ubq2' + outdir)  # Tórur's thesis, ph is not checked yet
     proteins.loc['THB_C2'] = dict(temp=277, expRg=1.909, expRgErr=0.003, pH=7.0, fasta=list(fasta_THB_C2), ionic=0.15, path='THB_C2' + outdir)  # Tórur's thesis, ph is not checked yet
     proteins.loc['hnRNPA1'] = dict(temp=300,expRg=3.12,expRgErr=0.02,pH=7.0,fasta=list(fasta_hnRNPA1),ionic=0.15,path='hnRNPA1'+outdir)  # Tórur's thesis, ph is not checked yet
-    proteins.loc['tau35'] = dict(temp=298,expRg=4.64,expRgErr=0.1,pH=7.4,fasta=list(fasta_tau35),ionic=0.15,path='tau35'+outdir)
+    proteins.loc['tau35'] = dict(temp=293.2,expRg=4.64,expRgErr=0.1,pH=7.4,fasta=list(fasta_tau35),ionic=0.15,path='tau35'+outdir)  # checked, 6/12/2022
     proteins.loc['CAHSD'] = dict(temp=293,expRg=4.84,expRgErr=0.2,pH=7.0,fasta=list(fasta_CAHSD),ionic=0.07,path='CAHSD'+outdir)
     proteins.loc['GHRICD'] = dict(temp=298,expRg=6.0,expRgErr=0.5,pH=7.3,fasta=list(fasta_GHRICD),ionic=0.35,path='GHRICD'+outdir)
     proteins.loc['p532070'] = dict(eps_factor=0.2,temp=277,expRg=2.39,expRgErr=0.05,pH=7,fasta=list(fasta_p532070),ionic=0.1,path='p532070'+outdir)

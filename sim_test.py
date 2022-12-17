@@ -1,6 +1,8 @@
 import time
 from argparse import ArgumentParser
 import os
+
+import numpy as np
 from openmm import app
 from utils import *
 import itertools
@@ -16,8 +18,9 @@ def simulate(config, overwrite, cpu_num):
     name, temp, ionic = config['name'], config['temp'], config['ionic']
     cutoff, steps, wfreq = config['cutoff'], config['steps'], config['wfreq']
     L = config['L']
-    gpu_id = config['gpu_id']
-    gpu = config['gpu']
+    # gpu_id = config['gpu_id']
+    # gpu = config['gpu']
+    gpu = False
     seq = config['seq']
     cycle = config["cycle"]
     replica = config["replica"]
@@ -91,7 +94,11 @@ def simulate(config, overwrite, cpu_num):
                 pos = [[L / 2, L / 2, L / 2 + (i - N / 2.) * .38] for i in range(N)]
             pos = np.array(pos)
 
-    pos = pos + np.array([L / 2, L / 2, L / 2])
+    dmap = self_distances(N, pos)
+    pos = pos + np.array([L/2, L/2, L/2])
+    # np.save(f"{cwd}/{dataset}/{name}/{cycle}/dmap.npy", dmap)
+    # np.save(f"{cwd}/{dataset}/{name}/{cycle}/pos.npy", pos)
+    # build mdtraj topology from fasta
     top = build_topology(fasta, n_chains=n_chains)
     # print(top.n_bonds)
     pdb_cg = f'{cwd}/{dataset}/{name}/{cycle}/top_{replica}.pdb'
@@ -149,21 +156,15 @@ def simulate(config, overwrite, cpu_num):
 
     fcheck = f'restart_{replica}.chk'
 
-    if os.path.isfile(fcheck) and not overwrite:
-        print(f'Reading check point file {fcheck}')
-        simulation.loadCheckpoint(fcheck)
-        simulation.reporters.append(app.dcdreporter.DCDReporter(f'{cwd}/{name}/{cycle}/{replica}.dcd', wfreq, append=True, enforcePeriodicBox=False))
-    else:
-        simulation.context.setPositions(pdb.positions)
-        simulation.minimizeEnergy()
-        state = simulation.context.getState(getPositions=True)
-        pos2 = state.getPositions(asNumpy=True)
-        # enforcePeriodicBox=False makes sure that the saved molecules are whole;
-        # when openmm tries to keep the center of mass of molecule in the box, it will modify the x,y,z of every atoms separately;
-        # which means only if x(or y or z) of COM is out of box, it will modify x of every atom so that x of COM is in the box;
-        # Therefore, if just the x of a single atom is out of box, x might not be modified into the box;
-        # and the center of simulation box is (L/2, L/2, L/2)
-        simulation.reporters.append(app.dcdreporter.DCDReporter(f'{cwd}/{dataset}/{name}/{cycle}/{replica}.dcd', wfreq, enforcePeriodicBox=False, append=False))
+
+    simulation.context.setPositions(pdb.positions)
+    simulation.minimizeEnergy()
+    state = simulation.context.getState(getPositions=True)
+    pos2 = state.getPositions(asNumpy=True)
+    # dmap2 = self_distances(N, pos2)
+    # np.save(f"{flib}/{dataset}/{name}/{cycle}/dmap2.npy", dmap2)
+    # np.save(f"{flib}/{dataset}/{name}/{cycle}/pos2.npy", pos2)
+    simulation.reporters.append(app.dcdreporter.DCDReporter(f'{cwd}/{dataset}/{name}/{cycle}/{replica}.dcd', wfreq, enforcePeriodicBox=False))
 
     simulation.reporters.append(
         app.statedatareporter.StateDataReporter(f'{cwd}/{dataset}/{name}/{cycle}/statedata_{replica}.log', int(wfreq),
@@ -212,20 +213,10 @@ def simulate(config, overwrite, cpu_num):
     print(
         f"{name} total calculation used time: {target_seconds // 3600}h {(target_seconds // 60) % 60}min {np.round(target_seconds % 60, 2)}s")"""
 
-if __name__ == '__main__':
-    parser = ArgumentParser()
-    parser.add_argument('--config', nargs='?', default='config.yaml', const='config.yaml', type=str)
-    parser.add_argument('--cpu_num', nargs='?', default=1, const=1, type=int)
-    parser.add_argument('--overwrite', nargs='?', default=False, const=True, type=bool)
-    args = parser.parse_args()
 
-    with open(f'{args.config}', 'r') as stream:
-        config = yaml.safe_load(stream)
+with open("/groups/sbinlab/fancao/IDPs_multi/test/Hst5/0/config_0.yaml", 'r') as stream:
+    config = yaml.safe_load(stream)
 
-    os.system("echo $CUDA_VISIBLE_DEVICES")
-    os.environ["CUDA_VISIBLE_DEVICES"] = "0"  # feasible
-    os.system("echo $CUDA_VISIBLE_DEVICES")
-
-    simulate(config, args.overwrite, args.cpu_num)
+simulate(config, True, 2)
 
 

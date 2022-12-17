@@ -1,6 +1,10 @@
-from PDBedit import PDBedit
+import os
+
+import pandas as pd
+
 from simulate import *
 from analyse import *
+import protein_repo
 
 def force_constants():
     pae_inv = load_pae("/groups/sbinlab/fancao/IDPs_multi/PNt_pae35_368.json")
@@ -11,66 +15,75 @@ def force_constants():
     # pdbedit = PDBedit()
     # plddt, fasta = list(pdbedit.readPDB_singleChain("/groups/sbinlab/fancao/IDPs_multi/AF-Q546U4-F1-model_v4.pdb").plddt)[34:34+seq_len]
 
-def test_ENM():
-    name = "Gal3"
+def test_sim():
+    # Com :      /home/people/fancao/IDPs_multi
+    # Deic:      /groups/sbinlab/fancao/IDPs_multi
     cwd = "/groups/sbinlab/fancao/IDPs_multi"  # current working directory
 
+    dataset = "test"  # onlyIDPs, IDPs_allmultidomain, test,
+    name = "Hst5"
+    allproteins = pd.read_pickle("/groups/sbinlab/fancao/IDPs_multi/test/allproteins.pkl")
+    prot = allproteins.loc[name]
     cycle = 0  # current training cycles
-    replicas = 20  # nums of replica for each sequence
-    pfname = 'CPU'  # platform to simulate
-    batch_sys = 'SLURM'  # schedule system
-    ffasta = f'{cwd}/multidomain_fasta/{name}.fasta'  # no fasta needed if pdb provided
-    calvados_version = 2  # which version of calvados to use
-    discard_first_nframes = 10  # the first ${discard_first_nframes} will be discarded when merging replicas
-    cutoff = 2.4  # cutoff for the nonionic interactions
-    runtime = 20  # hours (overwrites steps if runtime is > 0)
-    nframes = 200  # total number of frames to keep (exclude discarded frames)
-    kb = 8.31451E-3  # unit:KJ/(mol*K);
-
-    use_pdb = True
-    use_hnetwork = True
-    use_ssdomains = True
-
-    input_pae = decide_best_pae(cwd, name)
-
-    fpdb = f'{cwd}/af2pre/{name}/ranked_0.pdb'  # af2 predicted structure
-    fdomains = f'{cwd}/domains.yaml'
-    slab = False  # slab simulation parameters
-
-    proteinsRgs = initProteinsRgs(cycle)
-    proteinsRgs['N'] = proteinsRgs['fasta'].apply(lambda x: len(x))
-    prot = proteinsRgs.loc[name]
     replica = 0
-    N_res = prot.N
-    L = int(np.ceil((N_res - 1) * 0.38 + 4))
-    N_save = 260  # interval
-    N_steps = 520
-    k_restraint = kb*float(prot.temp)
+    df = pd.read_csv(f'{cwd}/{dataset}/residues_{cycle-1}.csv').set_index('three')
 
-    if not os.path.isdir(f"{cwd}/{name}/{cycle}"):
-        os.system(f"mkdir -p {cwd}/{name}/{cycle}")
-
-    config_data = dict(flib=cwd, calvados_version=calvados_version, pfname=pfname, name=name, ffasta=ffasta,
-                       temp=float(prot.temp), ionic=float(prot.ionic), cycle=cycle, replica=replica,
-                       cutoff=cutoff, L=L, wfreq=N_save, slab=slab, steps=N_steps, use_pdb=use_pdb, fpdb=fpdb,
-                       use_hnetwork=use_hnetwork, fdomains=fdomains, use_ssdomains=use_ssdomains,
-                       input_pae=input_pae, k_restraint=k_restraint, runtime=runtime,
-                       seq=prot.fasta)
-
-    with open(f"{cwd}/{name}/{cycle}/{name}_config_{replica}.yaml",'w') as stream:
-        yaml.dump(config_data,stream)
-
-    with open(f"{cwd}/{name}/{cycle}/{name}_config_{replica}.yaml", 'r') as stream:
+    with open(f"{cwd}/{dataset}/{name}/{cycle}/config_{replica}.yaml", 'r') as stream:
         config = yaml.safe_load(stream)
 
     simulate(config, True, 1)
 
+    """residues = pd.read_csv(f'{cwd}/{dataset}/residues_{cycle - 1}.csv').set_index('one', drop=False)
+    top = md.Topology()
+    chain = top.add_chain()
+    for resname in prot.fasta:
+        residue = top.add_residue(residues.loc[resname, 'three'], chain)
+        top.add_atom(residues.loc[resname, 'three'], element=md.element.carbon, residue=residue)
+    for i in range(len(prot.fasta) - 1):
+        top.add_bond(top.atom(i), top.atom(i + 1))
+    traj = md.load_dcd(f"{cwd}/{dataset}/{prot.path}/0.dcd", top=top)
+    traj = traj.image_molecules(inplace=False, anchor_molecules=[set(traj.top.chain(0).atoms)], make_whole=True)
+    traj.center_coordinates()
+    traj.xyz += traj.unitcell_lengths[0, 0] / 2
+    print(f'Number of frames: {traj.n_frames}')
+    traj.save_dcd(f'{cwd}/{dataset}/{prot.path}/{name}.dcd')
+    traj[0].save_pdb(f'{cwd}/{dataset}/{prot.path}/{name}.pdb')"""
+
+    """calcDistSums(cwd, dataset, df, name, prot)
+    np.save(f'{cwd}/{dataset}/{name}/{cycle}/{name}_AHenergy.npy',
+            calcAHenergy(cwd, dataset, df, allproteins.loc[name]))"""
+
+def test_mer():
+    # Com :      /home/people/fancao/IDPs_multi
+    # Deic:      /groups/sbinlab/fancao/IDPs_multi
+    cwd = "/groups/sbinlab/fancao/IDPs_multi"  # current working directory
+
+    dataset = "test"  # onlyIDPs, IDPs_allmultidomain, test,
+    names = ["GS48", "OPN"]
+    cycle = 0  # current training cycles
+
+    for name in names:
+        os.system(f"srun -w node589 -p sbinlab_ib2 python {cwd}/merge_replicas.py --cwd {cwd} --dataset {dataset} --name {name} --cycle {cycle} --replicas 1 --discard_first_nframes 0")
+
+def test_pulchra():
+    # Com :      /home/people/fancao/IDPs_multi
+    # Deic:      /groups/sbinlab/fancao/IDPs_multi
+    cwd = "/groups/sbinlab/fancao/IDPs_multi"  # current working directory
+
+    dataset = "test"  # onlyIDPs, IDPs_allmultidomain, test,
+    names = ["GS48", "OPN"]
+    cycle = 0  # current training cycles
+    for name in names:
+        os.system(f"srun -w node589 -p sbinlab_ib2 python {cwd}/pulchra.py --cwd {cwd} --dataset {dataset} --name {name} --num_cpus 2 --pulchra /groups/sbinlab/fancao/pulchra")
+
+def test_validate():
+    # Com :      /home/people/fancao/IDPs_multi
+    # Deic:      /groups/sbinlab/fancao/IDPs_multi
+    cwd = "/groups/sbinlab/fancao/IDPs_multi"  # current working directory
+    os.system(f"srun -w node150 -p sbinlab_gpu -c 10 --mem 6GB python3 {cwd}/validate.py")
 
 if __name__ == '__main__':
-    test_ENM()
-    # force_constants()
-
-
-
-
-
+    test_sim()
+    # test_mer()
+    # test_pulchra()
+    # test_validate()
